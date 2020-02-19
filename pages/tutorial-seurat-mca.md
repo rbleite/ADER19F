@@ -215,9 +215,6 @@ We need to normalize each cell for the total UMI counts for that cells. This nor
 
 ```r
 sobj <- NormalizeData(sobj, normalization.method = "LogNormalize", scale.factor = median(sobj@meta.data$nFeature_RNA))
-sobj <- NormalizeData(sobj, normalization.method = "LogNormalize", scale.factor = median(sobj@meta.data$nUMI))
-
-sobj@data[1:10, 1:10]
 ```
 
 ```
@@ -278,6 +275,7 @@ sobj <- FindVariableFeatures(sobj, mean.function = ExpMean, dispersion.function 
 top10 <- head(VariableFeatures(sobj), 10)
 plot1 <- VariableFeaturePlot(sobj)
 plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+CombinePlots(plots = list(plot1, plot2))
 ```
 
 
@@ -294,18 +292,6 @@ all.genes <- rownames(sobj)
 sobj <- ScaleData(sobj, features = all.genes)
 ```
 
-```
-## Regressing out: nUMI, percent.mito
-```
-
-```
-##
-## Time Elapsed:  15.9327945709229 secs
-```
-
-```
-## Scaling data matrix
-```
 
 Additionally, using the set of highly variable genes for dimensional reduction instead of the whole transcriptome helps to both speed-up the PCA computation and reduce the impact of low expressed (and noisy) genes.
 
@@ -315,6 +301,7 @@ sobj <- RunPCA(sobj, features = VariableFeatures(object = sobj))
 p1 <- PCAPlot(object = sobj, dim.1 = 1, dim.2 = 2, do.return=TRUE) + theme(legend.pos="none")
 p2 <- PCAPlot(object = sobj, dim.1 = 2, dim.2 = 3, do.return=TRUE) + theme(legend.pos="none")
 grid.arrange(p1, p2, ncol=2)
+
 ```
 
 ![](./images/tutorial-seurat-mca_files/unnamed-chunk-11-1.png)
@@ -325,6 +312,7 @@ For this purpose, *Seurat* provides the function `ElbowPlot`, that displays the 
 
 
 ```r
+DimHeatmap(sobj, dims = 1:15, cells = 500, balanced = TRUE)
 ElbowPlot(sobj)
 ```
 
@@ -344,10 +332,6 @@ Because of the high dimensionality of scRNA-seq datasets, clustering algorithms 
 `Seurat` uses a graph based clustering algorithm. The `resolution` parameter influences the granularity of the clusters, with higher values producing more and smaller clusters.
 
 
-```r
-sobj <- FindClusters(sobj, reduction.type = "pca", dims.use = 1:20,
-    resolution = 1.2, print.output = 0, save.SNN = FALSE)
-```
 
 ```r
 sobj <- FindNeighbors(sobj, dims = 1:10)
