@@ -117,9 +117,8 @@ When creating the *Seurat object* we can specify certain filtering criteria that
 
 
 ```r
-sobj <- CreateSeuratObject(raw.data=mat.raw, min.cells = 5)
-
-dim(sobj@data)
+sobj <- CreateSeuratObject(counts = mat.raw, min.cells = 5)
+dim(sobj)
 ```
 
 ```
@@ -130,7 +129,7 @@ Next we inspect the distributions of total counts per cell, and number of genes 
 
 
 ```r
-VlnPlot(sobj, features.plot = c("nUMI", "nGene"), point.size.use = 0.2)
+VlnPlot(sobj, features = c("nFeature_RNA", "nCount_RNA"), ncol = 5)
 ```
 
 ![](./images/tutorial-seurat-mca_files/unnamed-chunk-7-1.png)
@@ -139,7 +138,7 @@ VlnPlot(sobj, features.plot = c("nUMI", "nGene"), point.size.use = 0.2)
 <br/>
 
 ```r
-plot(sobj@meta.data$nUMI, sobj@meta.data$nGene, pch=20, cex=0.5)
+plot(sobj@meta.data$nFeature_RNA, sobj@meta.data$nCount_RNA, pch=20, cex=0.5)
 ```
 
 ![](./images/tutorial-seurat-mca_files/unnamed-chunk-7-2.png)
@@ -158,11 +157,11 @@ Next we calculate the percentage of mitochondrial RNA in each cell and add this 
 
 
 ```r
-mito.genes <- grep("^mt-", rownames(sobj@data), value = TRUE)
-percent.mito <- Matrix::colSums(sobj@data[mito.genes, ]) / Matrix::colSums(sobj@data)
+mito.genes <- grep("^mt-", rownames(sobj), value = TRUE)
+percent.mito <- Matrix::colSums(sobj[mito.genes, ]) / Matrix::colSums(sobj)
 sobj <- AddMetaData(sobj, metadata = percent.mito, col.name = "percent.mito")
 
-VlnPlot(sobj, features.plot = c("nUMI", "nGene", "percent.mito"))
+VlnPlot(sobj, features = c("nFeature_RNA", "nCount_RNA", "percent.mito"), ncol = 5)
 ```
 
 ![](./images/tutorial-seurat-mca_files/unnamed-chunk-8-1.png)
@@ -170,7 +169,7 @@ VlnPlot(sobj, features.plot = c("nUMI", "nGene", "percent.mito"))
 <br/>
 
 ```r
-plot(sobj@meta.data$nUMI, sobj@meta.data$percent.mito, pch=20, cex=0.5)
+plot(sobj@meta.data$nFeature_RNA, sobj@meta.data$percent.mito, pch=20, cex=0.5)
 ```
 
 ![](./images/tutorial-seurat-mca_files/unnamed-chunk-8-2.png)
@@ -199,10 +198,9 @@ A high percentage of mitochondrial RNA can indicate defective cells, so we shoul
 
 
 ```r
-sobj <- FilterCells(sobj, subset.names = "nGene", high.thresholds = 1500)
-sobj <- FilterCells(sobj, subset.names = "percent.mito", high.thresholds = 0.1)
+sobj <- subset(sobj, subset = nFeature_RNA < 1500 & percent.mito < 5)
 
-dim(sobj@data)
+dim(sobj)
 ```
 
 ```
@@ -216,6 +214,7 @@ We need to normalize each cell for the total UMI counts for that cells. This nor
 
 
 ```r
+sobj <- NormalizeData(sobj, normalization.method = "LogNormalize", scale.factor = median(sobj@meta.data$nFeature_RNA))
 sobj <- NormalizeData(sobj, normalization.method = "LogNormalize", scale.factor = median(sobj@meta.data$nUMI))
 
 sobj@data[1:10, 1:10]
@@ -263,7 +262,7 @@ The `FindVariableGenes` from the *Seurat* package does this by selecting genes t
 
 
 ```r
-sobj <- FindVariableGenes(sobj, mean.function = ExpMean, dispersion.function = LogVMR,  
+sobj <- FindVariableFeatures(sobj, mean.function = ExpMean, dispersion.function = LogVMR,  
                           x.low.cutoff = 0.025, x.high.cutoff = 3, y.cutoff = 0.5)
 ```
 
@@ -276,31 +275,12 @@ sobj <- FindVariableGenes(sobj, mean.function = ExpMean, dispersion.function = L
 ![](./images/tutorial-seurat-mca_files/vargenes-1.png)
 
 ```r
-length(sobj@var.genes)
+top10 <- head(VariableFeatures(sobj), 10)
+plot1 <- VariableFeaturePlot(sobj)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
 ```
 
-```
-## [1] 944
-```
 
-We can check the expression of a few of these variable genes across all cells using the `VlnPlot` function. We plot the expression of the 6 variable genes with highest dispersion, and the 6 variable genes with highest mean.
-
-
-```r
-hvginfo <- sobj@hvg.info[ sobj@var.genes, ]
-highest.dispersion <- head(rownames(hvginfo)[ order(-hvginfo$gene.dispersion) ])
-highest.mean <- head(rownames(hvginfo)[ order(-hvginfo$gene.mean) ])
-
-VlnPlot(sobj, features.plot = highest.dispersion, point.size.use=0.2)
-```
-
-![](./images/tutorial-seurat-mca_files/unnamed-chunk-10-1.png)
-
-```r
-VlnPlot(sobj, features.plot = highest.mean, point.size.use=0.2)
-```
-
-![](./images/tutorial-seurat-mca_files/unnamed-chunk-10-2.png)
 
 <br/>
 
@@ -310,7 +290,8 @@ In *Seurat*, principal component analysis is done on scaled expression data. The
 
 
 ```r
-sobj <- ScaleData(object = sobj, vars.to.regress = c("nUMI", "percent.mito"))
+all.genes <- rownames(sobj)
+sobj <- ScaleData(sobj, features = all.genes)
 ```
 
 ```
@@ -330,8 +311,7 @@ Additionally, using the set of highly variable genes for dimensional reduction i
 
 
 ```r
-sobj <- RunPCA(object = sobj, pc.genes = sobj@var.genes, pcs.compute = 40, do.print=FALSE)
-
+sobj <- RunPCA(sobj, features = VariableFeatures(object = sobj))
 p1 <- PCAPlot(object = sobj, dim.1 = 1, dim.2 = 2, do.return=TRUE) + theme(legend.pos="none")
 p2 <- PCAPlot(object = sobj, dim.1 = 2, dim.2 = 3, do.return=TRUE) + theme(legend.pos="none")
 grid.arrange(p1, p2, ncol=2)
@@ -341,11 +321,11 @@ grid.arrange(p1, p2, ncol=2)
 
 The next question is how many of the top principal components (PCs) are we going to use for the purpose of clustering the cells. The first thing to look at is the PCA scree-plot, showing the proportion of variance explained by each component. We are looking for a "knee" in the plot, where additional PCs do not bring much more new information.
 
-For this purpose, *Seurat* provides the function `PCElbowPlot`, that displays the standard-deviation of each PC.
+For this purpose, *Seurat* provides the function `ElbowPlot`, that displays the standard-deviation of each PC.
 
 
 ```r
-PCElbowPlot(sobj, num.pc = 40)
+ElbowPlot(sobj)
 ```
 
 ![](./images/tutorial-seurat-mca_files/unnamed-chunk-12-1.png)
@@ -353,29 +333,13 @@ PCElbowPlot(sobj, num.pc = 40)
 We can also calculate the proportion of variance ourselves and plot it (the two representations are proportional to each other).
 
 
-```r
-eigs <- sobj@dr$pca@sdev**2
-props <- eigs / sum(eigs)
-plot(props, ylab="Proportion of variance", xlab="Principal Component")
-```
-
-![](./images/tutorial-seurat-mca_files/unnamed-chunk-13-1.png)
-
-**Question**: Based on the above plots, how many principal components would you consider for further analysis.
-
-<details><summary>Click Here to see the answer</summary>
-
-There is a drop in the percentage of variance explained after PC15 and the plot seems to reach saturation after approximately 20 PCs. Thus, 15 to 20 PCs seem to be adequate for this dataset.
-
-</details>
-
 ---
 
 <br/>
 
 ## Clustering
 
-Because of the high dimensionality of scRNA-seq datasets, clustering algorithms face a number of challenges, such as high computation times and memory requirements. To alieviate these problems, one solution is to perform the clustering using the cells PCA scores instead of the full expression matrix, where each principal component represents the signal of a correlated set of genes. Based on the analysis above, we are going to proceed using 20 PCs.
+Because of the high dimensionality of scRNA-seq datasets, clustering algorithms face a number of challenges, such as high computation times and memory requirements. To alieviate these problems, one solution is to perform the clustering using the cells PCA scores instead of the full expression matrix, where each principal component represents the signal of a correlated set of genes.
 
 `Seurat` uses a graph based clustering algorithm. The `resolution` parameter influences the granularity of the clusters, with higher values producing more and smaller clusters.
 
@@ -383,6 +347,12 @@ Because of the high dimensionality of scRNA-seq datasets, clustering algorithms 
 ```r
 sobj <- FindClusters(sobj, reduction.type = "pca", dims.use = 1:20,
     resolution = 1.2, print.output = 0, save.SNN = FALSE)
+```
+
+```r
+sobj <- FindNeighbors(sobj, dims = 1:10)
+sobj <- FindClusters(sobj, resolution = 0.5)
+head(Idents(sobj), 5)
 ```
 
 The PCA plot will now display the identified clusters.
@@ -398,7 +368,7 @@ grid.arrange(p1, p2, ncol=2)
 
 <br/>
 
-## Visualizing clusters with a t-SNE plot
+## Visualizing clusters with a UMAP/t-SNE plot
 
 t-distributed stochastic neighbor embedding is a nonlinear dimensionality reduction often used in scRNA-seq analyses to visualize cell subpolulations. It is used to embed high dimensional scRNA-seq expressions in a 2D or 3D plot. Its main advantage compared to PCA is its ability to detect structures in the data that cannot be found by simple rotations (see [t-SNE: What the hell is it?](https://constantamateur.github.io/2018-01-02-tSNE/)).
 
@@ -417,52 +387,13 @@ For scRNA-seq datasets, a `perplexity` value in the range of 20 to 50 usually pr
 
 
 ```r
-sobj <- RunTSNE(sobj, dims.use = 1:20, do.fast = TRUE, perplexity=30)
-TSNEPlot(sobj, do.label = TRUE)
+sobj <- RunUMAP(sobj, dims = 1:20)
+UMAPPlot(sobj, do.label = TRUE)
 ```
 
 ![](./images/tutorial-seurat-mca_files/figure-html/tsne-1.png)
 
-**Exercise**: Modify the commands above to try different values of the `perplexity` argument. E.g. 5, 10, 20, 50, ...
 
-<details><summary>Click Here to see the solution</summary>
-
-
-
-<pre>
-tmp <- RunTSNE(sobj, dims.use = 1:20, do.fast = TRUE, perplexity=5)
-TSNEPlot(tmp, do.label = TRUE)
-</pre>
-
-<img src="./images/tutorial-seurat-mca_files/unnamed-chunk-15-1.png">
-
-
-<pre>
-tmp <- RunTSNE(sobj, dims.use = 1:20, do.fast = TRUE, perplexity=10)
-TSNEPlot(tmp, do.label = TRUE)
-</pre>
-
-<img src="./images/tutorial-seurat-mca_files/unnamed-chunk-15-2.png">
-
-
-<pre>
-tmp <- RunTSNE(sobj, dims.use = 1:20, do.fast = TRUE, perplexity=20)
-TSNEPlot(tmp, do.label = TRUE)
-</pre>
-
-<img src="./images/tutorial-seurat-mca_files/unnamed-chunk-15-3.png">
-
-
-<pre>
-tmp <- RunTSNE(sobj, dims.use = 1:20, do.fast = TRUE, perplexity=50)
-TSNEPlot(tmp, do.label = TRUE)
-</pre>
-
-<img src="./images/tutorial-seurat-mca_files/unnamed-chunk-15-4.png">
-
-</details>
-
-<br/>
 
 ## Finding marker genes
 
@@ -470,9 +401,8 @@ Seurat implements several methods for the discovery of cluster marker genes (dif
 
 
 ```r
-markers <- FindAllMarkers(object = sobj, only.pos = TRUE, min.pct = 0.25, thresh.use = 0.25)
+markers <- FindAllMarkers(sobj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
 markers <- markers[ markers$p_val_adj < 0.01, ]
-
 write.table(markers, file="lung1_markers.txt")
 ```
 
@@ -497,50 +427,14 @@ Seurat provides several functions to visualize the expression of these genes. We
 
 
 ```r
-top.markers <- do.call(rbind, lapply(split(markers, markers$cluster), head))
-DoHeatmap(sobj, genes.use = top.markers$gene, slim.col.label = TRUE, remove.key = TRUE)
+top10 <- markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC)
+DoHeatmap(sobj, features = top10$gene) + NoLegend()
 ```
 
 ![](./images/tutorial-seurat-mca_files/unnamed-chunk-19-1.png)
 
-Or we can investigate the expression of specific genes. Below we plot the expression of the top 6 markers for cluster 0 as violin plots, and by projecting the expression of these genes on a t-SNE plot.
 
 
-```r
-markers.0 <- markers[ which(markers$cluster == 0), ]
-
-VlnPlot(sobj, features.plot = head(markers.0$gene), point.size.use=0.5)
-```
-
-![](./images/tutorial-seurat-mca_files/unnamed-chunk-20-1.png)
-
-```r
-FeaturePlot(sobj, features.plot = head(markers.0$gene), cols.use = c("grey", "blue"), reduction.use = "tsne")
-```
-
-![](./images/tutorial-seurat-mca_files/unnamed-chunk-20-2.png)
-
-**Exercise**: Modify the commands above to plot the top markers of cluster 7.
-
-<details><summary>Click Here to see the solution</summary>
-
-
-<pre>
-markers.7 <- markers[ which(markers$cluster == 7), ]
-FeaturePlot(sobj, features.plot = head(markers.7$gene), cols.use = c("grey", "blue"), reduction.use = "tsne")
-</pre>
-
-<img src="./images/tutorial-seurat-mca_files/unnamed-chunk-21-1.png">
-
-<pre>
-VlnPlot(sobj, features.plot = head(markers.7$gene), point.size.use=0.5)
-</pre>
-
-<img src="./images/tutorial-seurat-mca_files/unnamed-chunk-21-2.png">
-
-</details>
-
----
 
 **Question**: What can you conclude from the above plots?
 
@@ -560,162 +454,7 @@ It appears from the expression heatmap that clusters 0, 2, 3 and 4 represent the
 
 ---
 
-We can check for differences between two specific clusters. Below we check if there any genes that distiguish clusters 0 and 2. It appears that these clusters are distiguished only by a small difference in the expression of 6 mitochondrion encoded genes.
 
-
-```r
-markers.0.2 <- FindMarkers(sobj, ident.1 = 0, ident.2 = 2, min.pct=0.25)
-markers.0.2 <- markers.0.2[ markers.0.2$p_val_adj < 0.01, ]
-
-markers.0.2
-```
-
-```
-##                p_val avg_logFC pct.1 pct.2    p_val_adj
-## mt-Co1  1.155037e-21 0.3012052 1.000 0.952 1.500277e-17
-## mt-Nd1  2.354213e-21 0.2840574 1.000 0.974 3.057887e-17
-## mt-Cytb 8.921074e-21 0.2660421 1.000 0.991 1.158758e-16
-## mt-Nd4  2.576016e-15 0.2560986 1.000 0.983 3.345987e-11
-## mt-Nd2  2.824157e-14 0.2512868 1.000 0.969 3.668298e-10
-## mt-Co3  1.370586e-11 0.2622473 0.956 0.834 1.780254e-07
-```
-
-**Exercise**: Modify the commands above to check for diferences between clusters 0 and 3, 0 and 4. Also compare clusters and 7 and 12.
-
-<details><summary>Click Here to see the solution</summary>
-
-
-<pre>
-markers.0.3 <- FindMarkers(sobj, ident.1 = 0, ident.2 = 3, min.pct=0.25)
-(markers.0.3 <- markers.0.3[ markers.0.3$p_val_adj < 0.01, ])
-</pre>
-
-
-<pre>
-##                p_val  avg_logFC pct.1 pct.2    p_val_adj
-## mt-Nd4  9.841152e-31 -0.3435626 1.000 0.996 1.278267e-26
-## mt-Nd1  2.357704e-30 -0.3334831 1.000 1.000 3.062422e-26
-## mt-Cytb 1.696221e-29 -0.2857224 1.000 1.000 2.203221e-25
-## mt-Co1  5.949068e-29 -0.2972600 1.000 1.000 7.727245e-25
-## mt-Nd2  4.383851e-27 -0.3321984 1.000 1.000 5.694184e-23
-## mt-Co3  2.476056e-19 -0.3242902 0.956 0.974 3.216149e-15
-## Cd74    3.516725e-09  0.2524194 0.954 0.833 4.567874e-05
-</pre>
-
-<pre>
-markers.0.4 <- FindMarkers(sobj, ident.1 = 0, ident.2 = 4, min.pct=0.25)
-(markers.0.4 <- markers.0.4[ markers.0.4$p_val_adj < 0.01, ])
-</pre>
-
-<pre>
-##              p_val  avg_logFC pct.1 pct.2    p_val_adj
-## Sftpc 7.733270e-48  0.2882008 1.000 1.000 1.004474e-43
-## B2m   6.303101e-10 -0.2691494 0.612 0.868 8.187098e-06
-</pre>
-
-<pre>
-markers.7.12 <- FindMarkers(sobj, ident.1 = 7, ident.2 = 12, min.pct=0.25)
-(markers.7.12 <- markers.7.12[ markers.7.12$p_val_adj < 0.01, ])
-</pre>
-
-<pre>
-##                 p_val  avg_logFC pct.1 pct.2    p_val_adj
-## Cxcl14   3.834629e-31 -1.2513125 0.073 0.851 4.980799e-27
-## Npnt     3.995809e-30 -0.9071321 0.053 0.791 5.190156e-26
-## Inmt     4.162204e-23 -1.3371193 0.656 1.000 5.406286e-19
-## Hsd11b1  6.917673e-22 -0.8515735 0.093 0.716 8.985366e-18
-## Gpx3     6.922612e-21 -1.1869715 0.424 0.925 8.991781e-17
-## Sept4    6.589080e-20 -0.7216886 0.093 0.672 8.558556e-16
-## Dcn      4.731405e-18  1.5361208 0.887 0.433 6.145623e-14
-## Aldh1a1  5.985015e-18 -0.6110383 0.086 0.612 7.773936e-14
-## Limch1   1.610576e-15 -0.5270906 0.099 0.597 2.091977e-11
-## Serpinf1 3.106935e-14  0.8852001 0.642 0.090 4.035598e-10
-## Prelp    3.069915e-13 -0.5757953 0.132 0.582 3.987512e-09
-## Tmem176a 4.252569e-13 -0.5666180 0.285 0.761 5.523662e-09
-## Itga8    1.457160e-12 -0.3735441 0.026 0.388 1.892705e-08
-## Pi16     1.739423e-12  0.7470882 0.556 0.030 2.259336e-08
-## Sparcl1  1.843517e-12 -0.6516152 0.603 0.940 2.394544e-08
-## Gyg      1.119171e-11 -0.3837300 0.066 0.448 1.453691e-07
-## Sod3     3.880114e-11 -0.6505828 0.682 0.910 5.039880e-07
-## Tmem176b 5.123389e-11 -0.5823912 0.417 0.791 6.654770e-07
-## Igfbp4   5.378103e-11  0.8464085 0.742 0.313 6.985618e-07
-## Cdo1     6.647703e-11 -0.3124234 0.020 0.328 8.634702e-07
-## Fmo2     7.736882e-11 -0.5289315 0.318 0.761 1.004944e-06
-## Ly6a     1.292407e-10  0.7690845 0.596 0.134 1.678707e-06
-## Tbx2     1.875072e-10 -0.2794454 0.040 0.358 2.435531e-06
-## Mettl7a1 1.878926e-10 -0.5857133 0.166 0.567 2.440537e-06
-## Cd82     2.746306e-10 -0.3410403 0.099 0.478 3.567177e-06
-## Fhl1     5.138078e-10 -0.6017082 0.377 0.776 6.673849e-06
-## Gsta3    7.559029e-10 -0.3332190 0.060 0.388 9.818423e-06
-## Pcolce2  7.932435e-10 -0.6664483 0.570 0.896 1.030344e-05
-## Cst3     8.274442e-10 -0.5127938 0.887 1.000 1.074767e-05
-## Ppp1r14a 1.426405e-09 -0.3846336 0.079 0.418 1.852758e-05
-## Lrat     5.230371e-09 -0.3790732 0.046 0.328 6.793729e-05
-## Meg3     5.315955e-09  0.5134390 0.444 0.045 6.904893e-05
-## Hspb1    1.599081e-08 -0.4277408 0.272 0.687 2.077047e-04
-## Spon1    1.851763e-08 -0.3764746 0.086 0.388 2.405255e-04
-## Selenbp1 2.495785e-08 -0.5091736 0.278 0.597 3.241775e-04
-## Lum      2.791038e-08  0.4560768 0.358 0.000 3.625280e-04
-## Ces1d    5.774381e-08 -0.3983095 0.053 0.313 7.500343e-04
-## Adh1     1.130875e-07 -0.4796724 0.510 0.791 1.468893e-03
-## Crip1    1.619444e-07  0.6992307 0.775 0.433 2.103495e-03
-## Col3a1   2.941686e-07  0.8273431 0.907 0.806 3.820956e-03
-## Mgp      4.152785e-07 -0.4240046 0.960 1.000 5.394053e-03
-## Col14a1  4.228662e-07  0.3345514 0.503 0.119 5.492610e-03
-</pre>
-
-<pre>
-FeaturePlot(sobj, features.plot = c("Dcn", "Cxcl14"), cols.use = c("grey", "blue"), reduction.use = "tsne")
-</pre>
-
-<img src="./images/tutorial-seurat-mca_files/unnamed-chunk-24-1.png">
-
-It appears that most differences between clusters 0, 2, 3 and 4 are due to small differences in the amount of mitochondrial RNA. Clusters 7 and 12 however display a larger amount of differentially expressed genes, and might indeed represent different cell populations.
-
-</details>
-
----
-
-We will merge clusters 0, 2, 3 and 4 into a single cluster (that we name 18). But first, we save the old cluster ids so we can restore them later if need arises.
-
-
-```r
-sobj <- StashIdent(sobj, save.name = "OriginalClusterNames")
-
-current.cluster.ids <- c(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17)
-new.cluster.ids <- c(18,1,18,18,18,5,6,7,8,9,10,11,12,13,14,15,16,17)
-sobj@ident <- plyr::mapvalues(sobj@ident, from = current.cluster.ids, to = new.cluster.ids)
-```
-
-And plot the t-SNE again to check the result.
-
-
-```r
-TSNEPlot(sobj, do.label = TRUE)
-```
-
-![](./images/tutorial-seurat-mca_files/unnamed-chunk-26-1.png)
-
-Finally, we run the `FindAllMarkers` function again to account for the new clustering.
-
-
-```r
-markers <- FindAllMarkers(object = sobj, only.pos = TRUE, min.pct = 0.25, thresh.use = 0.25)
-markers <- markers[ markers$p_val_adj < 0.01, ]
-
-write.table(markers, file="lung1_markers_fixed.txt", quote = FALSE)
-```
-
-
-
-```r
-top.markers <- do.call(rbind, lapply(split(markers, markers$cluster), head))
-DoHeatmap(sobj, genes.use = top.markers$gene, slim.col.label = TRUE, remove.key = TRUE)
-```
-
-![](./images/tutorial-seurat-mca_files/unnamed-chunk-29-1.png)
-
-<br/>
 
 ## Annotation of cell clusters
 
@@ -725,14 +464,14 @@ Some cells have well known markers. For example, the gene Ms4a1 is a marker for 
 
 
 ```r
-FeaturePlot(sobj, features.plot = c("Il7r", "Cd8a", "Ms4a1"), cols.use=c("grey", "red"), pt.size=0.5)
+FeaturePlot(sobj, features.plot = c("Il7r", "Cd8a", "Ms4a1"), pt.size=0.5)
 ```
 
 ![](./images/tutorial-seurat-mca_files/unnamed-chunk-30-1.png)
 
 
 ```r
-VlnPlot(sobj, features.plot = c("Il7r", "Cd8a", "Ms4a1"), point.size.use=0.2)
+VlnPlot(sobj, features = c("Il7r", "Cd8a", "Ms4a1"))
 ```
 
 ![](./images/tutorial-seurat-mca_files/unnamed-chunk-31-1.png)
@@ -778,39 +517,11 @@ Some of the clusters defined in the study are sub-populations of the same type o
 ```r
 sobj@meta.data$AnnotationSimple <- gsub("_.*", "", sobj@meta.data$Annotation)
 
-TSNEPlot(sobj, group.by="AnnotationSimple", do.label=TRUE, do.return=TRUE) + theme(legend.position = "none")
+UMAPPlot(sobj, group.by="AnnotationSimple", do.label=TRUE, do.return=TRUE) + theme(legend.position = "none")
 ```
 
 ```
-## Warning: Removed 1 rows containing missing values (geom_text).
-```
 
-![](./images/tutorial-seurat-mca_files/unnamed-chunk-34-1.png)
-
-We can compare our clustering result with the annotated cells by tabulating cluster cell assignments.
-
-
-```r
-cluster.comparison <- table(sobj@ident, sobj@meta.data$AnnotationSimple)
-mdf <- melt(cluster.comparison, varnames = c("Cluster", "Annotation"), value.name = "Cells")
-
-ggplot(mdf, aes(x=factor(Cluster), y=Annotation)) +
-  geom_text(aes(label=Cells, alpha=Cells>0))
-```
-
-![](./images/tutorial-seurat-mca_files/unnamed-chunk-35-1.png)
-
-We can also reproduce figure 4D.
-
-
-```r
-genes <- c("Sftpc", "Vwf", "Dcn", "Cxcl14")
-FeaturePlot(sobj, features.plot = genes, cols.use=c("grey", "red"), no.legend = FALSE)
-```
-
-![](./images/tutorial-seurat-mca_files/unnamed-chunk-36-1.png)
-
-<br/>
 
 ## Session Information
 
